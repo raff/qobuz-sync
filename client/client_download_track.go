@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -33,35 +34,56 @@ func (client *Client) downloadFile(trackID, path string) error {
 		return errors.New("was given an invalid streaming url from qobuz")
 	}
 
-	res, err := http.Get(url.URL) //nolint:noctx
-	if err != nil {
-		return errors.Wrap(err, "failed to do request")
-	}
-
-	defer func() {
-		if closeErr := res.Body.Close(); closeErr != nil {
-			err = errors.Wrap(err, "failed to close m3u file")
-		}
-	}()
-
-	audioFile, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, common.FilePerm)
-	if err != nil {
-		return errors.Wrap(err, "failed to create file")
-	}
-
-	defer func() {
-		if syncErr := audioFile.Sync(); syncErr != nil {
-			err = errors.Wrap(err, "failed to sync file")
+	if false {
+		res, err := http.Get(url.URL) //nolint:noctx
+		if err != nil {
+			return errors.Wrap(err, "failed to do request")
 		}
 
-		if closeErr := audioFile.Close(); closeErr != nil {
-			err = errors.Wrap(err, "failed to close file")
-		}
-	}()
+		defer func() {
+			if closeErr := res.Body.Close(); closeErr != nil {
+				err = errors.Wrap(err, "failed to close m3u file")
+			}
+		}()
 
-	_, err = io.Copy(audioFile, res.Body)
-	if err != nil {
-		return errors.Wrap(err, "failed to copy response body")
+		audioFile, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, common.FilePerm)
+		if err != nil {
+			return errors.Wrap(err, "failed to create file")
+		}
+
+		defer func() {
+			if syncErr := audioFile.Sync(); syncErr != nil {
+				err = errors.Wrap(err, "failed to sync file")
+			}
+
+			if closeErr := audioFile.Close(); closeErr != nil {
+				err = errors.Wrap(err, "failed to close file")
+			}
+		}()
+
+		_, err = io.Copy(audioFile, res.Body)
+		if err != nil {
+			return errors.Wrap(err, "failed to copy response body")
+		}
+	} else {
+		audioFile, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, common.FilePerm)
+		if err != nil {
+			return errors.Wrap(err, "failed to create file")
+		}
+
+		defer func() {
+			if syncErr := audioFile.Sync(); syncErr != nil {
+				err = errors.Wrap(err, "failed to sync file")
+			}
+
+			if closeErr := audioFile.Close(); closeErr != nil {
+				err = errors.Wrap(err, "failed to close file")
+			}
+		}()
+
+		if err := DownloadFile(url.URL, audioFile); err != nil {
+			return errors.Wrap(err, "failed to download file")
+		}
 	}
 
 	return nil
@@ -115,12 +137,13 @@ func (client *Client) downloadTrack(trackID string) error {
 		}
 	}
 
+	startTime := time.Now()
 	err = client.downloadFileAndSetMetadata(trackID, trackPath, track.Metadata())
 	if err != nil {
 		return errors.Wrap(err, "failed to download and set metadata")
 	}
 
-	log.Info().Msgf("downloaded track: %v", trackPath)
+	log.Info().Msgf("downloaded track: %v (%v)", trackPath, time.Since(startTime).Round(100*time.Millisecond))
 
 	err = client.trackTracker.Set(trackID, trackPath)
 	if err != nil {
